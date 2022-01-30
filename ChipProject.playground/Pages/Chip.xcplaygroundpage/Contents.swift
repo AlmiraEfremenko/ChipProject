@@ -22,22 +22,37 @@ public struct Chip {
     }
 }
 
-// Создать класс(хранилище) работа осуществляется по принципу LIFO(последним пришел-первым ушел). Метод push - добавляет элементы в массив storage,а метод pop - удаляет последний элемент(тоесть последний уходит первым)
+// Создать класс(хранилище) работа осуществляется по принципу LIFO(последним пришел-первым ушел).
 
 class Storage {
     var storage = [Chip]()
     var isAvailable = false
     var condition = NSCondition()
+    private var count = 0
     
     var isEmpty: Bool {
         storage.isEmpty
     }
     
     func push(item: Chip) {
+        condition.lock()
+        isAvailable = true
         storage.append(item)
+        count += 1
+        print("Чип \(count) в хранилище")
+        condition.signal()
+        print("Сигнал")
+        condition.unlock()
     }
     
     func pop() -> Chip {
+        condition.lock()
+        while(!isAvailable) {
+            condition.wait()
+            print("Ждет экземпляр")
+        }
+        isAvailable = false
+        condition.unlock()
         return storage.removeLast()
     }
 }
@@ -47,7 +62,6 @@ class Storage {
 class GeneratingThread: Thread {
     private let storage: Storage
     private var timer = Timer()
-    private var count = 0
     
     init(storage: Storage) {
         self.storage = storage
@@ -57,18 +71,10 @@ class GeneratingThread: Thread {
         timer = Timer.scheduledTimer(timeInterval: 2.0, target: self, selector: #selector(getChipCopy), userInfo: nil, repeats: true)
         RunLoop.current.add(timer, forMode: .common)
         RunLoop.current.run(until: Date.init(timeIntervalSinceNow: 20.0))
-        
     }
     
     @objc func getChipCopy() {
-        storage.condition.lock()
-        storage.isAvailable = true
         storage.push(item: Chip.make())
-        count += 1
-        print("Экземпляр \(count) создан и отправлен в хранилище")
-        storage.condition.signal()
-        print("Сигнал")
-        storage.condition.unlock()
     }
 }
 
@@ -83,17 +89,9 @@ class WorkingTread: Thread {
     
     override func main() {
         repeat {
-            while !storage.isAvailable {
-                storage.condition.wait()
-                print("WorkingThread - ждет")
-            }
             storage.pop().sodering()
             print("Припайка микросхемы")
-            
-            if storage.isEmpty {
-                storage.isAvailable = false
-            }
-        } while storage.isEmpty
+        } while storage.isEmpty || storage.isAvailable
     }
 }
 
